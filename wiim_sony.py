@@ -138,7 +138,9 @@ class PollingService:
             self._wiim_unavailable = True
             return
         except Exception:
-            self.logger.exception("Unexpected error polling WiiM")
+            if not self._wiim_unavailable:
+                self.logger.exception("Unexpected error polling WiiM")
+            self._wiim_unavailable = True
             return
 
         if self._wiim_unavailable:

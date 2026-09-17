@@ -307,6 +307,26 @@ class PollingServiceTest(unittest.TestCase):
         with self.assertLogs("test.polling", level="ERROR"):
             service.poll_once()
 
+    def test_unexpected_outage_logs_once_then_recovers(self):
+        controller = RecordingController()
+        service = PollingService(
+            SequenceClient([RuntimeError("boom"), RuntimeError("boom"), self.playing]),
+            controller,
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="INFO") as logs:
+            service.poll_once()
+            service.poll_once()
+            service.poll_once()
+
+        self.assertEqual(controller.statuses, [self.playing])
+        self.assertEqual(
+            sum("Unexpected error polling WiiM" in line for line in logs.output), 1
+        )
+        self.assertEqual(sum("recovered" in line for line in logs.output), 1)
+
     def test_waits_on_stop_event_between_polls(self):
         class StopAfterWait:
             def __init__(self):
