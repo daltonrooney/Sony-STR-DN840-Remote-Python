@@ -1,0 +1,114 @@
+import logging
+import math
+import urllib.parse
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+from sony_control import PowerState, Receiver, SonyError
+from wiim_client import WiiMStatus
+
+
+class ConfigError(ValueError):
+    pass
+
+
+def positive_float(env: Mapping[str, str], name: str, default: float) -> float:
+    try:
+        value = float(env.get(name, default))
+    except (TypeError, ValueError) as error:
+        raise ConfigError(f"{name} must be a number") from error
+    if not math.isfinite(value) or value <= 0:
+        raise ConfigError(f"{name} must be greater than zero")
+    return value
+
+
+@dataclass(frozen=True)
+class Config:
+    wiim_base_url: str
+    wiim_airplay_mode: str
+    sony_ip: str
+    target_input: str
+    poll_interval: float
+    request_timeout: float
+    sony_ready_timeout: float
+    log_level: str
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str]) -> "Config":
+        base_url = env.get("WIIM_BASE_URL")
+        if not base_url:
+            wiim_ip = env.get("WIIM_IP")
+            if not wiim_ip:
+                raise ConfigError("WIIM_IP or WIIM_BASE_URL is required")
+            base_url = f"http://{wiim_ip}"
+
+        try:
+            parsed = urllib.parse.urlsplit(base_url)
+            parsed.port
+        except (TypeError, ValueError) as error:
+            raise ConfigError("WIIM_BASE_URL must be an HTTP or HTTPS URL") from error
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ConfigError("WIIM_BASE_URL must be an HTTP or HTTPS URL")
+
+        log_level_value = env.get("LOG_LEVEL", "INFO")
+        if not isinstance(log_level_value, str):
+            raise ConfigError("LOG_LEVEL must be a string")
+        log_level = log_level_value.upper()
+        if log_level not in logging.getLevelNamesMapping():
+            raise ConfigError(f"Invalid LOG_LEVEL: {log_level}")
+
+        return cls(
+            wiim_base_url=base_url.rstrip("/"),
+            wiim_airplay_mode=env.get("WIIM_AIRPLAY_MODE", "1"),
+            sony_ip=env.get("SONY_IP", "receiver.example"),
+            target_input=env.get("SONY_TARGET_INPUT", "SA-CD/CD"),
+            poll_interval=positive_float(env, "POLL_INTERVAL", 1.5),
+            request_timeout=positive_float(env, "REQUEST_TIMEOUT", 1.0),
+            sony_ready_timeout=positive_float(env, "SONY_READY_TIMEOUT", 20.0),
+            log_level=log_level,
+        )
+
+
+class AutomationController:
+    def __init__(
+        self,
+        sony: Receiver,
+        target_input: str,
+        sony_ready_timeout: float,
+        logger: logging.Logger,
+    ):
+        self.sony = sony
+        self.target_input = target_input
+        self.sony_ready_timeout = sony_ready_timeout
+        self.logger = logger
+        self._previous_playing: bool | None = None
+
+    def observe(self, status: WiiMStatus) -> None:
+        playing = status.airplay_playing
+        playback_started = playing and self._previous_playing is not True
+        self._previous_playing = playing
+        if not playback_started:
+            return
+
+        self.logger.info("playback started")
+        self._handle_playback_started()
+
+    def _handle_playback_started(self) -> None:
+        state = self.sony.power_state()
+        self.logger.info("Sony power state classified as %s", state.name)
+        if state is PowerState.ON:
+            return
+        if state is PowerState.UNKNOWN:
+            return
+        if state is not PowerState.STANDBY:
+            return
+
+        self.logger.info("Sony receiver is in STANDBY; waking")
+        self.sony.wake_from_standby(self.sony_ready_timeout)
+        self.logger.info("Sony receiver is ready")
+        self.logger.info("selecting input %s", self.target_input)
+        self.sony.select_input_when_awake(self.target_input)
+        confirmed = self.sony.source()
+        self.logger.info("confirmed source %s", confirmed)
+        if confirmed.casefold() != self.target_input.casefold():
+            raise SonyError(f"Sony input confirmation failed: {confirmed}")
