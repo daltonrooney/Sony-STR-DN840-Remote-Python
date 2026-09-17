@@ -1,3 +1,4 @@
 config.py
 .sony-control-device-id
 __pycache__/
+.worktrees/
