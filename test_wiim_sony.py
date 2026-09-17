@@ -332,6 +332,84 @@ class PollingServiceTest(unittest.TestCase):
         )
         self.assertEqual(sum("recovered" in line for line in logs.output), 1)
 
+    def test_sony_failure_is_contained_without_steady_play_retry(self):
+        sony = FakeSony([PowerState.STANDBY], confirmed_source="TV")
+        controller = AutomationController(
+            sony, "SA-CD/CD", 20.0, logging.getLogger("test.automation")
+        )
+        service = PollingService(
+            SequenceClient([self.playing, self.playing]),
+            controller,
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="INFO") as logs:
+            service.poll_once()
+            service.poll_once()
+
+        self.assertEqual(
+            sony.calls,
+            ["power_state", ("wake", 20.0), ("input", "SA-CD/CD")],
+        )
+        self.assertEqual(sony.source_calls, 1)
+        self.assertEqual(
+            sum("Sony controller action failed" in line for line in logs.output), 1
+        )
+        self.assertEqual(sum("recovered" in line for line in logs.output), 0)
+
+    def test_pause_then_play_retries_failed_controller_action(self):
+        sony = FakeSony([PowerState.STANDBY, PowerState.STANDBY], confirmed_source="TV")
+        controller = AutomationController(
+            sony, "SA-CD/CD", 20.0, logging.getLogger("test.automation")
+        )
+        service = PollingService(
+            SequenceClient([self.playing, WiiMStatus("pause", "1", "1"), self.playing]),
+            controller,
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="ERROR") as logs:
+            service.poll_once()
+            service.poll_once()
+            service.poll_once()
+
+        self.assertEqual(
+            sony.calls,
+            [
+                "power_state",
+                ("wake", 20.0),
+                ("input", "SA-CD/CD"),
+                "power_state",
+                ("wake", 20.0),
+                ("input", "SA-CD/CD"),
+            ],
+        )
+        self.assertEqual(sony.source_calls, 2)
+        self.assertEqual(
+            sum("Sony controller action failed" in line for line in logs.output), 2
+        )
+
+    def test_unexpected_controller_error_is_contained(self):
+        class FailingController:
+            def observe(self, status):
+                raise RuntimeError("controller boom")
+
+        service = PollingService(
+            SequenceClient([self.playing]),
+            FailingController(),
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="ERROR") as logs:
+            service.poll_once()
+
+        self.assertEqual(
+            sum("Unexpected controller error" in line for line in logs.output), 1
+        )
+
     def test_waits_on_stop_event_between_polls(self):
         class StopAfterWait:
             def __init__(self):

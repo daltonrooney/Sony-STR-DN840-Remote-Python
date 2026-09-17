@@ -150,7 +150,12 @@ class PollingService:
         if self._wiim_unavailable:
             self.logger.info("WiiM recovered")
             self._wiim_unavailable = False
-        self.controller.observe(status)
+        try:
+            self.controller.observe(status)
+        except SonyError:
+            self.logger.exception("Sony controller action failed")
+        except Exception:
+            self.logger.exception("Unexpected controller error")
 
     def run_forever(self, stop_event: threading.Event) -> None:
         while not stop_event.is_set():
