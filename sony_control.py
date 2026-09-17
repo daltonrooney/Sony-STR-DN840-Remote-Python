@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 import http.client
 import os
 from pathlib import Path
@@ -33,6 +34,12 @@ class SonyError(RuntimeError):
 
 class RegistrationRequired(SonyError):
     pass
+
+
+class PowerState(Enum):
+    ON = "on"
+    STANDBY = "standby"
+    UNKNOWN = "unknown"
 
 
 def device_id() -> str:
@@ -145,12 +152,15 @@ class Receiver:
             raise SonyError("GetVolume returned no volume")
         return int(value)
 
-    def is_awake(self) -> bool:
+    def power_state(self) -> PowerState:
         try:
             self.volume()
-            return True
         except (SonyError, ValueError):
-            return False
+            return PowerState.UNKNOWN
+        return PowerState.ON
+
+    def is_awake(self) -> bool:
+        return self.power_state() is PowerState.ON
 
     def cers_status(self) -> dict[str, str]:
         status, text = self._request(
@@ -247,8 +257,20 @@ class Receiver:
                 return True
         raise SonyError("Receiver did not become ready after the power command")
 
+    def wake_from_standby(self, wait: float = 20.0) -> None:
+        self.send_ircc(POWER_TOGGLE)
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            if self.power_state() is PowerState.ON:
+                return
+        raise SonyError("Receiver did not become ready after the power command")
+
     def select_input(self, target: str, max_steps: int = 20) -> int:
         self.power_on()
+        return self.select_input_when_awake(target, max_steps)
+
+    def select_input_when_awake(self, target: str, max_steps: int = 20) -> int:
         current = self.source()
         if current.casefold() == target.casefold():
             return 0
@@ -270,4 +292,3 @@ class Receiver:
             if current == first:
                 break
         raise SonyError(f"Input {target!r} was not found in the receiver's cycle")
-

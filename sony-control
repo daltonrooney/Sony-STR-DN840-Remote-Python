@@ -3,7 +3,7 @@ import argparse
 import os
 import sys
 
-from sony_control import DEFAULT_HOST, Receiver, SonyError
+from sony_control import DEFAULT_HOST, PowerState, Receiver, SonyError
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sony-control")
@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
             steps = receiver.select_input(args.name)
             print(f"input: {receiver.source()} ({steps} step{'s' if steps != 1 else ''})")
         elif args.command == "status":
-            if not receiver.is_awake():
+            if receiver.power_state() is not PowerState.ON:
                 print("power: standby or unreachable")
                 return 0
             print("power: on")
