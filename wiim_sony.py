@@ -1,11 +1,12 @@
 import logging
 import math
+import threading
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from sony_control import PowerState, Receiver, SonyError
-from wiim_client import WiiMStatus
+from wiim_client import WiiMError, WiiMStatus
 
 
 class ConfigError(ValueError):
@@ -112,3 +113,40 @@ class AutomationController:
         self.logger.info("confirmed source %s", confirmed)
         if confirmed.casefold() != self.target_input.casefold():
             raise SonyError(f"Sony input confirmation failed: {confirmed}")
+
+
+class PollingService:
+    def __init__(
+        self,
+        wiim,
+        controller: AutomationController,
+        poll_interval: float,
+        logger: logging.Logger,
+    ):
+        self.wiim = wiim
+        self.controller = controller
+        self.poll_interval = poll_interval
+        self.logger = logger
+        self._wiim_unavailable = False
+
+    def poll_once(self) -> None:
+        try:
+            status = self.wiim.fetch_status()
+        except WiiMError:
+            if not self._wiim_unavailable:
+                self.logger.warning("WiiM is unreachable")
+            self._wiim_unavailable = True
+            return
+        except Exception:
+            self.logger.exception("Unexpected error polling WiiM")
+            return
+
+        if self._wiim_unavailable:
+            self.logger.info("WiiM recovered")
+            self._wiim_unavailable = False
+        self.controller.observe(status)
+
+    def run_forever(self, stop_event: threading.Event) -> None:
+        while not stop_event.is_set():
+            self.poll_once()
+            stop_event.wait(self.poll_interval)

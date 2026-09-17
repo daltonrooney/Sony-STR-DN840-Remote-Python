@@ -5,8 +5,8 @@ from dataclasses import FrozenInstanceError
 from enum import Enum
 
 from sony_control import PowerState, SonyError
-from wiim_client import WiiMStatus
-from wiim_sony import AutomationController, Config, ConfigError
+from wiim_client import WiiMError, WiiMStatus
+from wiim_sony import AutomationController, Config, ConfigError, PollingService
 
 
 class FakeSony:
@@ -234,6 +234,103 @@ class AutomationControllerTest(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, messages)
+
+
+class SequenceClient:
+    def __init__(self, results):
+        self.results = iter(results)
+
+    def fetch_status(self):
+        result = next(self.results)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+class RecordingController:
+    def __init__(self):
+        self.statuses = []
+
+    def observe(self, status):
+        self.statuses.append(status)
+
+
+class PollingServiceTest(unittest.TestCase):
+    def setUp(self):
+        self.logger = logging.getLogger("test.polling")
+        self.playing = WiiMStatus("play", "1", "1")
+
+    def test_logs_one_failure_then_recovery(self):
+        controller = RecordingController()
+        service = PollingService(
+            SequenceClient([WiiMError("down"), WiiMError("down"), self.playing]),
+            controller,
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="INFO") as logs:
+            service.poll_once()
+            service.poll_once()
+            service.poll_once()
+
+        self.assertEqual(controller.statuses, [self.playing])
+        self.assertEqual(sum("unreachable" in line for line in logs.output), 1)
+        self.assertEqual(sum("recovered" in line for line in logs.output), 1)
+
+    def test_outage_does_not_create_a_second_play_transition(self):
+        sony = FakeSony([PowerState.ON])
+        controller = AutomationController(
+            sony, "SA-CD/CD", 20.0, logging.getLogger("test.automation")
+        )
+        service = PollingService(
+            SequenceClient([self.playing, WiiMError("down"), self.playing]),
+            controller,
+            1.5,
+            self.logger,
+        )
+
+        service.poll_once()
+        service.poll_once()
+        service.poll_once()
+
+        self.assertEqual(sony.calls, ["power_state"])
+
+    def test_unexpected_exception_is_contained(self):
+        service = PollingService(
+            SequenceClient([RuntimeError("boom")]),
+            RecordingController(),
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="ERROR"):
+            service.poll_once()
+
+    def test_waits_on_stop_event_between_polls(self):
+        class StopAfterWait:
+            def __init__(self):
+                self.stopped = False
+                self.intervals = []
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, interval):
+                self.intervals.append(interval)
+                self.stopped = True
+
+        stop_event = StopAfterWait()
+        service = PollingService(
+            SequenceClient([self.playing]),
+            RecordingController(),
+            1.5,
+            self.logger,
+        )
+
+        service.run_forever(stop_event)
+
+        self.assertEqual(stop_event.intervals, [1.5])
 
 
 if __name__ == "__main__":
