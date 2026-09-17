@@ -54,9 +54,10 @@ depend on a hard-coded input order and is safe to call repeatedly.
 
 ## WiiM playback automation
 
-The automation watches the WiiM Mini's LAN status endpoint. When AirPlay
-playback starts while the Sony is in standby, it wakes the receiver and selects
-the configured input. Wire the playback path as:
+The automation watches the WiiM Mini's LAN status endpoint. Its active action
+requires an AirPlay playback transition while the Sony is classified as standby.
+No validated standby classifier exists yet, so automatic wake and input
+selection are currently inactive. Wire the playback path as:
 
 ```text
 AirPlay source -> WiiM Mini -> RCA -> Sony SA-CD/CD
@@ -73,17 +74,22 @@ Those values, and the Sony standby classification used before waking it, await
 live confirmation against the installed WiiM firmware and receiver. Do not
 enable the service yet.
 
+Automatic wake becomes available only after the standby classifier is
+implemented and the live playback scenarios validate it.
+
 The automation never powers the receiver off. It also makes no input change
 when the Sony is already on; it acts only on a transition into matching AirPlay
 playback while the receiver is classified as standby.
 
 ### Configuration
 
-Copy the example environment file and edit the network values:
+For foreground and one-shot validation, create a user-owned local environment
+file and edit the network values:
 
 ```console
-sudo install -m 600 systemd/wiim-sony.env.example /etc/wiim-sony.env
-sudoedit /etc/wiim-sony.env
+cp systemd/wiim-sony.env.example .wiim-sony.env
+chmod 600 .wiim-sony.env
+$EDITOR .wiim-sony.env
 ```
 
 `WIIM_IP` is the WiiM hostname or IP address and is used to build its HTTP URL.
@@ -101,11 +107,12 @@ such as `INFO` or `DEBUG`.
 
 ### Manual operation
 
-Load the variables in your shell, then perform one bounded poll:
+Load the user-owned local variables in your shell, then perform one bounded
+poll:
 
 ```console
 set -a
-. /etc/wiim-sony.env
+. ./.wiim-sony.env
 set +a
 ./wiim-sony --once
 ```
@@ -116,20 +123,23 @@ recovers.
 
 ### Service files
 
-Install the unit and environment file only for review; do not enable or start
-the service until Task 8 live validation confirms the WiiM firmware behavior
-and Sony standby classification.
+Do not create `/etc/wiim-sony.env`, install the unit, reload systemd, or enable
+the service until Task 8 live validation has confirmed the WiiM firmware
+behavior, standby classifier, and playback scenarios. After that gate succeeds,
+install the root-owned environment file with mode 600 and the unit:
 
 ```console
 sudo install -D -m 644 systemd/wiim-sony.service /etc/systemd/system/wiim-sony.service
 sudo install -m 600 systemd/wiim-sony.env.example /etc/wiim-sony.env
+sudoedit /etc/wiim-sony.env
 sudo systemctl daemon-reload
+sudo systemctl enable --now wiim-sony
 sudo systemctl status wiim-sony
 journalctl -u wiim-sony -f
 ```
 
-After the live-validation gate is complete, enable it with
-`sudo systemctl enable --now wiim-sony`.
+The service remains unprivileged by running as `SERVICE_USER` while reading the
+root-owned environment file.
 
 ### Troubleshooting
 
