@@ -1,12 +1,16 @@
+import argparse
 import logging
 import math
+import os
+import signal
+import sys
 import threading
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from sony_control import PowerState, Receiver, SonyError
-from wiim_client import WiiMError, WiiMStatus
+from wiim_client import WiiMClient, WiiMError, WiiMStatus
 
 
 class ConfigError(ValueError):
@@ -152,3 +156,56 @@ class PollingService:
         while not stop_event.is_set():
             self.poll_once()
             stop_event.wait(self.poll_interval)
+
+
+def build_service(config: Config) -> PollingService:
+    wiim = WiiMClient(
+        config.wiim_base_url,
+        config.request_timeout,
+        config.wiim_airplay_mode,
+    )
+    sony = Receiver(config.sony_ip, timeout=config.request_timeout)
+    logger = logging.getLogger("wiim-sony")
+    controller = AutomationController(
+        sony,
+        config.target_input,
+        config.sony_ready_timeout,
+        logger,
+    )
+    return PollingService(wiim, controller, config.poll_interval, logger)
+
+
+def main(
+    argv: list[str] | None = None, env: Mapping[str, str] | None = None
+) -> int:
+    parser = argparse.ArgumentParser(description="Automate Sony input selection for WiiM AirPlay playback.")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="poll the WiiM once and exit",
+    )
+    arguments = parser.parse_args(argv)
+
+    try:
+        config = Config.from_env(os.environ if env is None else env)
+    except ConfigError as error:
+        print(f"wiim-sony: {error}", file=sys.stderr)
+        return 2
+
+    logging.basicConfig(level=config.log_level)
+    service = build_service(config)
+    if arguments.once:
+        service.poll_once()
+        return 0
+
+    stop_event = threading.Event()
+    logger = logging.getLogger("wiim-sony")
+
+    def request_stop(signum: int, _frame: object) -> None:
+        logger.info("received signal %s; stopping", signum)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    service.run_forever(stop_event)
+    return 0

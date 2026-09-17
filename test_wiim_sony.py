@@ -1,11 +1,16 @@
+import contextlib
+import io
 import logging
 import math
+import signal
 import unittest
 from dataclasses import FrozenInstanceError
 from enum import Enum
+from unittest import mock
 
 from sony_control import PowerState, SonyError
 from wiim_client import WiiMError, WiiMStatus
+import wiim_sony
 from wiim_sony import AutomationController, Config, ConfigError, PollingService
 
 
@@ -351,6 +356,77 @@ class PollingServiceTest(unittest.TestCase):
         service.run_forever(stop_event)
 
         self.assertEqual(stop_event.intervals, [1.5])
+
+
+class EntrypointTest(unittest.TestCase):
+    def test_build_service_passes_configuration_to_components(self):
+        config = Config.from_env(
+            {
+                "WIIM_BASE_URL": "http://wiim.local",
+                "SONY_IP": "receiver.example",
+                "REQUEST_TIMEOUT": "0.8",
+                "SONY_READY_TIMEOUT": "12",
+            }
+        )
+
+        with (
+            mock.patch.object(wiim_sony, "WiiMClient") as wiim_class,
+            mock.patch.object(wiim_sony, "Receiver") as sony_class,
+            mock.patch.object(wiim_sony, "AutomationController") as controller_class,
+            mock.patch.object(wiim_sony, "PollingService") as service_class,
+        ):
+            service = wiim_sony.build_service(config)
+
+        wiim_class.assert_called_once_with("http://wiim.local", 0.8, "1")
+        sony_class.assert_called_once_with("receiver.example", timeout=0.8)
+        controller_class.assert_called_once_with(
+            sony_class.return_value,
+            "SA-CD/CD",
+            12.0,
+            mock.ANY,
+        )
+        self.assertIs(service, service_class.return_value)
+
+    def test_once_polls_once_and_exits_zero(self):
+        service = mock.Mock()
+
+        with mock.patch.object(wiim_sony, "build_service", return_value=service):
+            result = wiim_sony.main(["--once"], {"WIIM_IP": "wiim-mini.local"})
+
+        self.assertEqual(result, 0)
+        service.poll_once.assert_called_once_with()
+        service.run_forever.assert_not_called()
+
+    def test_invalid_configuration_exits_nonzero(self):
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            result = wiim_sony.main(["--once"], {})
+
+        self.assertNotEqual(result, 0)
+        self.assertIn("WIIM_IP or WIIM_BASE_URL is required", stderr.getvalue())
+
+    def test_normal_mode_runs_until_a_signal_sets_the_stop_event(self):
+        service = mock.Mock()
+        handlers = {}
+
+        with (
+            mock.patch.object(wiim_sony, "build_service", return_value=service),
+            mock.patch.object(
+                wiim_sony.signal,
+                "signal",
+                side_effect=lambda signal_number, handler: handlers.setdefault(
+                    signal_number, handler
+                ),
+            ),
+        ):
+            result = wiim_sony.main([], {"WIIM_IP": "wiim-mini.local"})
+
+        self.assertEqual(result, 0)
+        stop_event = service.run_forever.call_args.args[0]
+        self.assertFalse(stop_event.is_set())
+        handlers[signal.SIGTERM](signal.SIGTERM, None)
+        self.assertTrue(stop_event.is_set())
 
 
 if __name__ == "__main__":
