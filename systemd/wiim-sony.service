@@ -1,0 +1,17 @@
+[Unit]
+Description=WiiM playback to Sony STR-DN840 input automation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=SERVICE_USER
+WorkingDirectory=/path/to/Sony-STR-DN840-Remote-Python
+EnvironmentFile=/etc/wiim-sony.env
+ExecStart=/usr/bin/python3 /path/to/Sony-STR-DN840-Remote-Python/wiim-sony
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
