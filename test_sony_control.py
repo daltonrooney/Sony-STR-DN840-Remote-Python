@@ -1,12 +1,6 @@
-import importlib.machinery
-import importlib.util
 import unittest
 
-
-loader = importlib.machinery.SourceFileLoader("sony_control", "sony-control")
-spec = importlib.util.spec_from_loader(loader.name, loader)
-sony_control = importlib.util.module_from_spec(spec)
-loader.exec_module(sony_control)
+import sony_control
 
 
 class ParseStatusTest(unittest.TestCase):
