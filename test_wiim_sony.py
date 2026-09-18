@@ -467,6 +467,7 @@ class EntrypointTest(unittest.TestCase):
         config = Config.from_env(
             {
                 "WIIM_BASE_URL": "http://wiim.local",
+                "WIIM_TLS_VERIFY": "false",
                 "SONY_IP": "receiver.example",
                 "REQUEST_TIMEOUT": "0.8",
                 "SONY_READY_TIMEOUT": "12",
@@ -482,7 +483,7 @@ class EntrypointTest(unittest.TestCase):
             service = wiim_sony.build_service(config)
 
         wiim_class.assert_called_once_with(
-            "http://wiim.local", 0.8, "1", tls_verify=True
+            "http://wiim.local", 0.8, "1", tls_verify=False
         )
         sony_class.assert_called_once_with("receiver.example", timeout=0.8)
         controller_class.assert_called_once_with(
