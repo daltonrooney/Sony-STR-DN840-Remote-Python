@@ -42,6 +42,7 @@ class ConfigTest(unittest.TestCase):
         config = Config.from_env({"WIIM_IP": "wiim-test.example"})
 
         self.assertEqual(config.wiim_base_url, "http://wiim-test.example")
+        self.assertIs(config.wiim_tls_verify, True)
         self.assertEqual(config.wiim_airplay_mode, "1")
         self.assertEqual(config.sony_ip, "receiver.example")
         self.assertEqual(config.target_input, "SA-CD/CD")
@@ -59,6 +60,29 @@ class ConfigTest(unittest.TestCase):
         )
 
         self.assertEqual(config.wiim_base_url, "https://wiim-mini.local:443")
+
+    def test_tls_verify_accepts_common_boolean_values(self):
+        for value in ("true", "TRUE", "1", "yes", "on"):
+            with self.subTest(value=value):
+                config = Config.from_env(
+                    {"WIIM_IP": "wiim", "WIIM_TLS_VERIFY": value}
+                )
+                self.assertIs(config.wiim_tls_verify, True)
+
+        for value in ("false", "FALSE", "0", "no", "off"):
+            with self.subTest(value=value):
+                config = Config.from_env(
+                    {"WIIM_IP": "wiim", "WIIM_TLS_VERIFY": value}
+                )
+                self.assertIs(config.wiim_tls_verify, False)
+
+    def test_invalid_tls_verify_fails(self):
+        for value in ("", "enabled", "2", True):
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigError):
+                    Config.from_env(
+                        {"WIIM_IP": "wiim", "WIIM_TLS_VERIFY": value}
+                    )
 
     def test_missing_address_fails(self):
         with self.assertRaises(ConfigError):
@@ -91,6 +115,7 @@ class ConfigTest(unittest.TestCase):
         config = Config.from_env(
             {
                 "WIIM_IP": "wiim",
+                "WIIM_TLS_VERIFY": "false",
                 "WIIM_AIRPLAY_MODE": "2",
                 "SONY_IP": "sony.local",
                 "SONY_TARGET_INPUT": "Video 1",
@@ -102,6 +127,7 @@ class ConfigTest(unittest.TestCase):
         )
 
         self.assertEqual(config.wiim_airplay_mode, "2")
+        self.assertIs(config.wiim_tls_verify, False)
         self.assertEqual(config.sony_ip, "sony.local")
         self.assertEqual(config.target_input, "Video 1")
         self.assertEqual(config.poll_interval, 2.5)
@@ -455,7 +481,9 @@ class EntrypointTest(unittest.TestCase):
         ):
             service = wiim_sony.build_service(config)
 
-        wiim_class.assert_called_once_with("http://wiim.local", 0.8, "1")
+        wiim_class.assert_called_once_with(
+            "http://wiim.local", 0.8, "1", tls_verify=True
+        )
         sony_class.assert_called_once_with("receiver.example", timeout=0.8)
         controller_class.assert_called_once_with(
             sony_class.return_value,

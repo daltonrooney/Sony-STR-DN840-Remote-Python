@@ -27,9 +27,24 @@ def positive_float(env: Mapping[str, str], name: str, default: float) -> float:
     return value
 
 
+def boolean(env: Mapping[str, str], name: str, default: bool) -> bool:
+    raw_value = env.get(name)
+    if raw_value is None:
+        return default
+    if not isinstance(raw_value, str):
+        raise ConfigError(f"{name} must be true or false")
+    value = raw_value.strip().lower()
+    if value in {"true", "1", "yes", "on"}:
+        return True
+    if value in {"false", "0", "no", "off"}:
+        return False
+    raise ConfigError(f"{name} must be true or false")
+
+
 @dataclass(frozen=True)
 class Config:
     wiim_base_url: str
+    wiim_tls_verify: bool
     wiim_airplay_mode: str
     sony_ip: str
     target_input: str
@@ -64,6 +79,7 @@ class Config:
 
         return cls(
             wiim_base_url=base_url.rstrip("/"),
+            wiim_tls_verify=boolean(env, "WIIM_TLS_VERIFY", True),
             wiim_airplay_mode=env.get("WIIM_AIRPLAY_MODE", "1"),
             sony_ip=env.get("SONY_IP", "receiver.example"),
             target_input=env.get("SONY_TARGET_INPUT", "SA-CD/CD"),
@@ -168,6 +184,7 @@ def build_service(config: Config) -> PollingService:
         config.wiim_base_url,
         config.request_timeout,
         config.wiim_airplay_mode,
+        tls_verify=config.wiim_tls_verify,
     )
     sony = Receiver(config.sony_ip, timeout=config.request_timeout)
     logger = logging.getLogger("wiim-sony")

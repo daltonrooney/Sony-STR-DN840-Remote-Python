@@ -63,16 +63,27 @@ selection are currently inactive. Wire the playback path as:
 AirPlay source -> WiiM Mini -> RCA -> Sony SA-CD/CD
 ```
 
-Both devices must be reachable on the LAN through `automation-host.example`: the WiiM HTTP status
+Both devices must be reachable on the LAN through `automation-host.example`: the WiiM HTTPS status
 endpoint and the Sony CERS endpoint on port 50001 plus IRCC on port 8080.
 Enable Network Standby on the Sony so it can receive the wake command. Complete
 CERS registration before running the automation, using the registration steps
 above.
 
+The installed WiiM firmware, `<FIRMWARE_VERSION>`, reports `securemode=1` and
+`security=https/2.0`. It refuses HTTP status requests and presents a self-signed
+certificate over HTTPS. Configure its address and local certificate handling as:
+
+```dotenv
+WIIM_BASE_URL=https://<address>
+WIIM_TLS_VERIFY=false
+```
+
+Disabling certificate verification keeps the connection encrypted but does not
+authenticate the WiiM. Use this setting only for the WiiM on a trusted LAN.
+
 The expected WiiM status for AirPlay playback is `status=play` and mode `1`.
-Those values, and the Sony standby classification used before waking it, await
-live confirmation against the installed WiiM firmware and receiver. Do not
-enable the service yet.
+That mapping, and the Sony standby classification used before waking it, await
+live confirmation against the installed devices. Do not enable the service yet.
 
 Automatic wake becomes available only after the standby classifier is
 implemented and the live playback scenarios validate it.
@@ -92,16 +103,18 @@ chmod 600 .wiim-sony.env
 $EDITOR .wiim-sony.env
 ```
 
-`WIIM_IP` is the WiiM hostname or IP address and is used to build its HTTP URL.
-Set `WIIM_BASE_URL` instead to provide the complete `http://` or `https://`
-base URL; it overrides `WIIM_IP`. `SONY_IP` is the receiver hostname or IP.
-`SONY_TARGET_INPUT` is the source name to confirm after waking; use the CERS
-source spelling, such as `SA-CD/CD`.
+`WIIM_BASE_URL` is the complete WiiM status API base URL. For the installed
+firmware, set it to `https://<address>`. `WIIM_TLS_VERIFY` defaults to `true`;
+set it to `false` for the WiiM's self-signed certificate. `WIIM_IP` remains
+available as a fallback that builds an `http://` URL, and `WIIM_BASE_URL`
+overrides it. `SONY_IP` is the receiver hostname or IP. `SONY_TARGET_INPUT` is
+the source name to confirm after waking; use the CERS source spelling, such as
+`SA-CD/CD`.
 
 `POLL_INTERVAL` is the delay in seconds between WiiM polls. `REQUEST_TIMEOUT`
 is the per-request timeout in seconds. `SONY_READY_TIMEOUT` is the maximum
 seconds to wait after issuing the Sony wake command. `WIIM_AIRPLAY_MODE` is the
-WiiM player mode that identifies AirPlay and defaults to `1`; live firmware
+WiiM player mode that identifies AirPlay and defaults to `1`; live playback
 confirmation is still required. `LOG_LEVEL` is a standard Python logging level
 such as `INFO` or `DEBUG`.
 
@@ -148,10 +161,12 @@ If CERS reports HTTP 403 or a registration-required error, reopen `HOME NETWORK
 and run `./sony-control register` within 30 seconds. Ensure the saved device ID
 uses the `MediaRemote:XX-XX-XX-XX-XX-XX` form.
 
-For `WiiM is unreachable`, check its IP or hostname, LAN route through `automation-host.example`,
-and `WIIM_BASE_URL` if set. A malformed or unknown WiiM status is treated as a
-polling failure; inspect the status endpoint and confirm the installed firmware
-reports scalar `status` and `mode` fields.
+For `WiiM is unreachable`, check its IP or hostname, the LAN route through
+`automation-host.example`, and that `WIIM_BASE_URL` uses HTTPS. A certificate verification failure
+requires either a trusted certificate or `WIIM_TLS_VERIFY=false` for this local
+self-signed device. A malformed or unknown WiiM status is treated as a polling
+failure; inspect the status endpoint and confirm the installed firmware reports
+scalar `status` and `mode` fields.
 
 `Sony power state classified as UNKNOWN` means the controller cannot safely
 tell whether the receiver is awake, so it sends no wake or input command. Check

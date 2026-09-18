@@ -1,4 +1,5 @@
 import json
+import ssl
 from dataclasses import dataclass
 from urllib import error, parse, request
 
@@ -59,14 +60,24 @@ class WiiMClient:
         base_url: str,
         timeout: float,
         airplay_mode: str = "1",
-        opener=request.urlopen,
+        opener=None,
+        *,
+        tls_verify: bool = True,
     ):
         self.endpoint = parse.urljoin(
             base_url.rstrip("/") + "/", "httpapi.asp?command=getPlayerStatus"
         )
         self.timeout = timeout
         self.airplay_mode = airplay_mode
-        self.opener = opener
+        if opener is not None:
+            self.opener = opener
+        elif parse.urlsplit(base_url).scheme == "https" and not tls_verify:
+            context = ssl._create_unverified_context()
+            self.opener = request.build_opener(
+                request.HTTPSHandler(context=context)
+            ).open
+        else:
+            self.opener = request.urlopen
 
     def fetch_status(self) -> WiiMStatus:
         status_request = request.Request(
