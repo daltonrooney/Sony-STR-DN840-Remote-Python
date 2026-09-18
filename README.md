@@ -169,6 +169,47 @@ journalctl -u wiim-sony -f
 The service remains unprivileged by running as `SERVICE_USER` while reading the
 root-owned environment file.
 
+### Checking status and operating the service
+
+Check whether the service starts at boot, whether it is running now, and its
+recent activity:
+
+```console
+systemctl is-enabled wiim-sony
+systemctl is-active wiim-sony
+systemctl status wiim-sony
+journalctl -u wiim-sony --since "10 minutes ago"
+journalctl -u wiim-sony -f
+```
+
+Check the Sony's classified power state and current input:
+
+```console
+SONY_STANDBY_SOURCE=BD ./sony-control status
+```
+
+Inspect the WiiM's raw local status. `status=play` with `mode=1` is the
+AirPlay-playing state used by the daemon:
+
+```console
+curl --insecure \
+  'https://wiim.example/httpapi.asp?command=getPlayerStatus' \
+  | python3 -m json.tool
+```
+
+Use these commands after changing `/etc/wiim-sony.env` or when manually
+controlling the installed service:
+
+```console
+sudo systemctl restart wiim-sony
+sudo systemctl stop wiim-sony
+sudo systemctl start wiim-sony
+```
+
+`./wiim-sony --once` performs one diagnostic poll and exits. It returns success
+when the poll is contained, so use its logs and the device status commands above
+to inspect the result.
+
 ### Troubleshooting
 
 If CERS reports HTTP 403 or a registration-required error, reopen `HOME NETWORK
