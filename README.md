@@ -66,23 +66,23 @@ path as:
 AirPlay source -> WiiM Mini -> RCA -> Sony SA-CD/CD
 ```
 
-Both devices must be reachable on the LAN through `automation-host.example`: the WiiM HTTPS status
-endpoint and the Sony CERS endpoint on port 50001 plus IRCC on port 8080.
-Enable Network Standby on the Sony so it can receive the wake command. Complete
-CERS registration before running the automation, using the registration steps
-above.
+Both devices must be reachable on the LAN through
+`automation-host.example`: the WiiM HTTPS status endpoint and the Sony CERS
+endpoint on port 50001 plus IRCC on port 8080. Enable Network Standby on the
+Sony so it can receive the wake command. Complete CERS registration before
+running the automation, using the registration steps above.
 
-The primary WiiM Mini is at `wiim.example` and runs firmware
-`<FIRMWARE_VERSION>`. It reports `securemode=1` and `security=https/2.0`, refuses
-HTTP status requests, and presents a self-signed certificate over HTTPS.
-Configure its address and local certificate handling as:
+The primary WiiM Mini is available at `wiim.example`. It refuses plain HTTP
+status requests and presents a self-signed certificate over HTTPS. Configure
+its address and local certificate handling as:
 
 ```dotenv
 WIIM_BASE_URL=https://wiim.example
 WIIM_TLS_VERIFY=false
 ```
 
-The WiiM at `secondary-wiim.example` is named secondary WiiM and is outside this automation.
+The secondary WiiM uses `secondary-wiim.example` and is outside this
+automation.
 
 Disabling certificate verification keeps the connection encrypted but does not
 authenticate the WiiM. Use this setting only for the WiiM on a trusted LAN.
@@ -218,8 +218,7 @@ and run `./sony-control register` within 30 seconds. Ensure the saved device ID
 uses the `MediaRemote:XX-XX-XX-XX-XX-XX` form.
 
 For `WiiM is unreachable`, check its IP or hostname, the LAN route through
-`automation-host.example`, and that `WIIM_BASE_URL` uses HTTPS. A certificate verification failure
-requires either a trusted certificate or `WIIM_TLS_VERIFY=false` for this local
+`automation-host.example`, and that `WIIM_BASE_URL` uses HTTPS. A certificate verification failure requires either a trusted certificate or `WIIM_TLS_VERIFY=false` for this local
 self-signed device. A malformed or unknown WiiM status is treated as a polling
 failure; inspect the status endpoint and confirm the installed firmware reports
 scalar `status` and `mode` fields.

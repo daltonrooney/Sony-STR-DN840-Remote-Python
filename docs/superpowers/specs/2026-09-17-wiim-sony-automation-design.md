@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Run a small local daemon on `automation-host.example` that detects AirPlay playback beginning on a
-WiiM Mini. When the Sony receiver was in standby at that moment, the daemon
-wakes it, waits until it is ready, selects SA-CD/CD, and confirms the input.
+Run a small local daemon on `automation-host.example` that detects AirPlay
+playback beginning on a WiiM Mini. When the Sony receiver was in standby at that
+moment, the daemon wakes it, waits until it is ready, selects SA-CD/CD, and confirms the input.
 Playback ending never powers the receiver off.
 
 The daemon must coexist with the existing LG TV, HDMI-CEC, and ARC behavior. If
@@ -224,7 +224,7 @@ The live scenarios are:
 The repository supplies a systemd unit template that:
 
 - starts after `network-online.target`;
-- runs as the unprivileged `SERVICE_USER` user;
+- runs as the unprivileged `SERVICE_USER` account;
 - loads configuration from an environment file;
 - restarts after unexpected failure with a short delay;
 - writes logs to the journal.
