@@ -78,9 +78,15 @@ def find_text(root: ET.Element, name: str) -> str | None:
 
 
 class Receiver:
-    def __init__(self, host: str, timeout: float = 3.0):
+    def __init__(
+        self,
+        host: str,
+        timeout: float = 3.0,
+        standby_source: str | None = None,
+    ):
         self.host = host
         self.timeout = timeout
+        self.standby_source = standby_source.strip() if standby_source else None
         self.device_id = device_id()
 
     def _request(
@@ -153,10 +159,14 @@ class Receiver:
         return int(value)
 
     def power_state(self) -> PowerState:
-        try:
-            self.volume()
-        except (SonyError, ValueError):
+        if not self.standby_source:
             return PowerState.UNKNOWN
+        try:
+            source = self.source()
+        except (SonyError, ValueError, ET.ParseError):
+            return PowerState.UNKNOWN
+        if source.casefold() == self.standby_source.casefold():
+            return PowerState.STANDBY
         return PowerState.ON
 
     def is_awake(self) -> bool:
@@ -247,15 +257,15 @@ class Receiver:
         raise SonyError(f"Registration failed with HTTP {status}")
 
     def power_on(self, wait: float = 20.0) -> bool:
-        if self.is_awake():
+        state = self.power_state()
+        if state is PowerState.ON:
             return False
-        self.send_ircc(POWER_TOGGLE)
-        deadline = time.monotonic() + wait
-        while time.monotonic() < deadline:
-            time.sleep(0.5)
-            if self.is_awake():
-                return True
-        raise SonyError("Receiver did not become ready after the power command")
+        if state is PowerState.UNKNOWN:
+            raise SonyError(
+                "Receiver power state is unknown; configure SONY_STANDBY_SOURCE"
+            )
+        self.wake_from_standby(wait)
+        return True
 
     def wake_from_standby(self, wait: float = 20.0) -> None:
         self.send_ircc(POWER_TOGGLE)

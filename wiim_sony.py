@@ -48,6 +48,7 @@ class Config:
     wiim_airplay_mode: str
     sony_ip: str
     target_input: str
+    sony_standby_source: str | None
     poll_interval: float
     request_timeout: float
     sony_ready_timeout: float
@@ -77,12 +78,23 @@ class Config:
         if log_level not in logging.getLevelNamesMapping():
             raise ConfigError(f"Invalid LOG_LEVEL: {log_level}")
 
+        target_input = env.get("SONY_TARGET_INPUT", "SA-CD/CD").strip()
+        standby_source = env.get("SONY_STANDBY_SOURCE", "").strip() or None
+        if (
+            standby_source is not None
+            and standby_source.casefold() == target_input.casefold()
+        ):
+            raise ConfigError(
+                "SONY_STANDBY_SOURCE must differ from SONY_TARGET_INPUT"
+            )
+
         return cls(
             wiim_base_url=base_url.rstrip("/"),
             wiim_tls_verify=boolean(env, "WIIM_TLS_VERIFY", True),
             wiim_airplay_mode=env.get("WIIM_AIRPLAY_MODE", "1"),
             sony_ip=env.get("SONY_IP", "receiver.example"),
-            target_input=env.get("SONY_TARGET_INPUT", "SA-CD/CD"),
+            target_input=target_input,
+            sony_standby_source=standby_source,
             poll_interval=positive_float(env, "POLL_INTERVAL", 1.5),
             request_timeout=positive_float(env, "REQUEST_TIMEOUT", 1.0),
             sony_ready_timeout=positive_float(env, "SONY_READY_TIMEOUT", 20.0),
@@ -186,7 +198,11 @@ def build_service(config: Config) -> PollingService:
         config.wiim_airplay_mode,
         tls_verify=config.wiim_tls_verify,
     )
-    sony = Receiver(config.sony_ip, timeout=config.request_timeout)
+    sony = Receiver(
+        config.sony_ip,
+        timeout=config.request_timeout,
+        standby_source=config.sony_standby_source,
+    )
     logger = logging.getLogger("wiim-sony")
     controller = AutomationController(
         sony,

@@ -46,6 +46,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.wiim_airplay_mode, "1")
         self.assertEqual(config.sony_ip, "receiver.example")
         self.assertEqual(config.target_input, "SA-CD/CD")
+        self.assertIsNone(config.sony_standby_source)
         self.assertEqual(config.poll_interval, 1.5)
         self.assertEqual(config.request_timeout, 1.0)
         self.assertEqual(config.sony_ready_timeout, 20.0)
@@ -119,6 +120,7 @@ class ConfigTest(unittest.TestCase):
                 "WIIM_AIRPLAY_MODE": "2",
                 "SONY_IP": "sony.local",
                 "SONY_TARGET_INPUT": "Video 1",
+                "SONY_STANDBY_SOURCE": "BD",
                 "POLL_INTERVAL": "2.5",
                 "REQUEST_TIMEOUT": "3",
                 "SONY_READY_TIMEOUT": "12.25",
@@ -130,6 +132,7 @@ class ConfigTest(unittest.TestCase):
         self.assertIs(config.wiim_tls_verify, False)
         self.assertEqual(config.sony_ip, "sony.local")
         self.assertEqual(config.target_input, "Video 1")
+        self.assertEqual(config.sony_standby_source, "BD")
         self.assertEqual(config.poll_interval, 2.5)
         self.assertEqual(config.request_timeout, 3.0)
         self.assertEqual(config.sony_ready_timeout, 12.25)
@@ -140,6 +143,25 @@ class ConfigTest(unittest.TestCase):
 
         with self.assertRaises(FrozenInstanceError):
             config.sony_ip = "other"
+
+    def test_standby_source_matching_target_is_rejected_case_insensitively(self):
+        with self.assertRaisesRegex(
+            ConfigError, "SONY_STANDBY_SOURCE must differ from SONY_TARGET_INPUT"
+        ):
+            Config.from_env(
+                {
+                    "WIIM_IP": "wiim",
+                    "SONY_TARGET_INPUT": "SA-CD/CD",
+                    "SONY_STANDBY_SOURCE": "sa-cd/cd",
+                }
+            )
+
+    def test_blank_standby_source_disables_classification(self):
+        config = Config.from_env(
+            {"WIIM_IP": "wiim", "SONY_STANDBY_SOURCE": "   "}
+        )
+
+        self.assertIsNone(config.sony_standby_source)
 
 
 class AutomationControllerTest(unittest.TestCase):
@@ -469,6 +491,7 @@ class EntrypointTest(unittest.TestCase):
                 "WIIM_BASE_URL": "http://wiim.local",
                 "WIIM_TLS_VERIFY": "false",
                 "SONY_IP": "receiver.example",
+                "SONY_STANDBY_SOURCE": "BD",
                 "REQUEST_TIMEOUT": "0.8",
                 "SONY_READY_TIMEOUT": "12",
             }
@@ -485,7 +508,9 @@ class EntrypointTest(unittest.TestCase):
         wiim_class.assert_called_once_with(
             "http://wiim.local", 0.8, "1", tls_verify=False
         )
-        sony_class.assert_called_once_with("receiver.example", timeout=0.8)
+        sony_class.assert_called_once_with(
+            "receiver.example", timeout=0.8, standby_source="BD"
+        )
         controller_class.assert_called_once_with(
             sony_class.return_value,
             "SA-CD/CD",

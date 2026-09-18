@@ -9,9 +9,12 @@
 ./sony-control input SA-CD/CD
 ```
 
-Set `SONY_HOST` or pass `--host` to use another address. Registration stores the
-CERS client ID in `.sony-control-device-id`. Set `SONY_DEVICE_ID` to import or
-override an existing registration.
+Set `SONY_HOST` or pass `--host` to use another address. Set
+`SONY_STANDBY_SOURCE=BD` to enable the verified power classifier for this
+installation. Without that variable, power is reported as unknown and commands
+that could toggle power refuse to run. Registration stores the CERS client ID in
+`.sony-control-device-id`. Set `SONY_DEVICE_ID` to import or override an existing
+registration.
 
 ## CERS registration
 
@@ -54,10 +57,10 @@ depend on a hard-coded input order and is safe to call repeatedly.
 
 ## WiiM playback automation
 
-The automation watches the WiiM Mini's LAN status endpoint. Its active action
-requires an AirPlay playback transition while the Sony is classified as standby.
-No validated standby classifier exists yet, so automatic wake and input
-selection are currently inactive. Wire the playback path as:
+The automation watches the WiiM Mini's LAN status endpoint. An AirPlay playback
+transition wakes the Sony and selects SA-CD/CD only when the configured CERS
+source sentinel classifies the receiver as being in standby. Wire the playback
+path as:
 
 ```text
 AirPlay source -> WiiM Mini -> RCA -> Sony SA-CD/CD
@@ -69,24 +72,32 @@ Enable Network Standby on the Sony so it can receive the wake command. Complete
 CERS registration before running the automation, using the registration steps
 above.
 
-The installed WiiM firmware, `<FIRMWARE_VERSION>`, reports `securemode=1` and
-`security=https/2.0`. It refuses HTTP status requests and presents a self-signed
-certificate over HTTPS. Configure its address and local certificate handling as:
+The primary WiiM Mini is at `wiim.example` and runs firmware
+`<FIRMWARE_VERSION>`. It reports `securemode=1` and `security=https/2.0`, refuses
+HTTP status requests, and presents a self-signed certificate over HTTPS.
+Configure its address and local certificate handling as:
 
 ```dotenv
-WIIM_BASE_URL=https://<address>
+WIIM_BASE_URL=https://wiim.example
 WIIM_TLS_VERIFY=false
 ```
+
+The WiiM at `secondary-wiim.example` is named secondary WiiM and is outside this automation.
 
 Disabling certificate verification keeps the connection encrypted but does not
 authenticate the WiiM. Use this setting only for the WiiM on a trusted LAN.
 
-The expected WiiM status for AirPlay playback is `status=play` and mode `1`.
-That mapping, and the Sony standby classification used before waking it, await
-live confirmation against the installed devices. Do not enable the service yet.
+The primary device reports `status=stop` while idle and `status=play` with
+mode `1` during AirPlay. Track and artist metadata are hex encoded. The daemon
+uses only `status` and `mode`; malformed responses are ignored until a later
+valid poll.
 
-Automatic wake becomes available only after the standby classifier is
-implemented and the live playback scenarios validate it.
+The STR-DN840 keeps its LAN services active in Network Standby, so reachability
+and volume do not distinguish standby from on. In this installation, CERS
+reports the stale source `BD` in standby and the current source while on. Set
+`SONY_STANDBY_SOURCE=BD` only while the BD input remains unused. Unset it to
+disable automatic wake safely; the receiver will be classified as unknown and
+no power command will be sent.
 
 The automation never powers the receiver off. It also makes no input change
 when the Sony is already on; it acts only on a transition into matching AirPlay
@@ -103,19 +114,24 @@ chmod 600 .wiim-sony.env
 $EDITOR .wiim-sony.env
 ```
 
-`WIIM_BASE_URL` is the complete WiiM status API base URL. For the installed
-firmware, set it to `https://<address>`. `WIIM_TLS_VERIFY` defaults to `true`;
+`WIIM_BASE_URL` is the complete WiiM status API base URL. For the primary
+unit, set it to `https://wiim.example`. `WIIM_TLS_VERIFY` defaults to `true`;
 set it to `false` for the WiiM's self-signed certificate. `WIIM_IP` remains
 available as a fallback that builds an `http://` URL, and `WIIM_BASE_URL`
 overrides it. `SONY_IP` is the receiver hostname or IP. `SONY_TARGET_INPUT` is
 the source name to confirm after waking; use the CERS source spelling, such as
 `SA-CD/CD`.
 
+`SONY_STANDBY_SOURCE` is the CERS source value that indicates Network Standby.
+It must differ from `SONY_TARGET_INPUT`. `BD` is verified for this topology and
+requires keeping the BD input unused. An empty or unset value disables power
+classification and wake commands.
+
 `POLL_INTERVAL` is the delay in seconds between WiiM polls. `REQUEST_TIMEOUT`
 is the per-request timeout in seconds. `SONY_READY_TIMEOUT` is the maximum
 seconds to wait after issuing the Sony wake command. `WIIM_AIRPLAY_MODE` is the
-WiiM player mode that identifies AirPlay and defaults to `1`; live playback
-confirmation is still required. `LOG_LEVEL` is a standard Python logging level
+WiiM player mode that identifies AirPlay and defaults to `1`. `LOG_LEVEL` is a
+standard Python logging level
 such as `INFO` or `DEBUG`.
 
 ### Manual operation
@@ -136,10 +152,8 @@ recovers.
 
 ### Service files
 
-Do not create `/etc/wiim-sony.env`, install the unit, reload systemd, or enable
-the service until Task 8 live validation has confirmed the WiiM firmware
-behavior, standby classifier, and playback scenarios. After that gate succeeds,
-install the root-owned environment file with mode 600 and the unit:
+After confirming the foreground wake and input behavior, install the root-owned
+environment file with mode 600 and the unit:
 
 ```console
 sudo install -D -m 644 systemd/wiim-sony.service /etc/systemd/system/wiim-sony.service
@@ -170,11 +184,11 @@ scalar `status` and `mode` fields.
 
 `Sony power state classified as UNKNOWN` means the controller cannot safely
 tell whether the receiver is awake, so it sends no wake or input command. Check
-Sony LAN access and Network Standby. A wake timeout means the receiver did not
-become reachable before `SONY_READY_TIMEOUT`; verify Network Standby and
-increase that timeout only if the receiver is otherwise reachable.
+CERS registration and LAN access, then confirm `SONY_STANDBY_SOURCE=BD` is set
+if BD remains unused. A wake timeout means CERS continued reporting the standby
+sentinel through `SONY_READY_TIMEOUT`; verify Network Standby and the sentinel
+before changing the timeout.
 
 An input confirmation failure means CERS did not report `SONY_TARGET_INPUT`
 after the Function+ cycle. Check the source spelling with `./sony-control
-status`, then set `SONY_TARGET_INPUT` to that exact source name and retry after
-the live-validation gate.
+status`, then set `SONY_TARGET_INPUT` to that exact source name and retry.
