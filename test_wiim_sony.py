@@ -406,6 +406,32 @@ class PollingServiceTest(unittest.TestCase):
         )
         self.assertEqual(sum("recovered" in line for line in logs.output), 0)
 
+    def test_wake_timeout_is_contained_without_selecting_an_input(self):
+        class WakeTimeoutSony(FakeSony):
+            def wake_from_standby(self, wait):
+                self.calls.append(("wake", wait))
+                raise SonyError("Receiver did not become ready after the power command")
+
+        sony = WakeTimeoutSony([PowerState.STANDBY])
+        controller = AutomationController(
+            sony, "SA-CD/CD", 20.0, logging.getLogger("test.automation")
+        )
+        service = PollingService(
+            SequenceClient([self.playing]),
+            controller,
+            1.5,
+            self.logger,
+        )
+
+        with self.assertLogs("test.polling", level="ERROR") as logs:
+            service.poll_once()
+
+        self.assertEqual(sony.calls, ["power_state", ("wake", 20.0)])
+        self.assertEqual(sony.source_calls, 0)
+        self.assertEqual(
+            sum("Sony controller action failed" in line for line in logs.output), 1
+        )
+
     def test_pause_then_play_retries_failed_controller_action(self):
         sony = FakeSony([PowerState.STANDBY, PowerState.STANDBY], confirmed_source="TV")
         controller = AutomationController(

@@ -125,7 +125,8 @@ the source name to confirm after waking; use the CERS source spelling, such as
 `SONY_STANDBY_SOURCE` is the CERS source value that indicates Network Standby.
 It must differ from `SONY_TARGET_INPUT`. `BD` is verified for this topology and
 requires keeping the BD input unused. An empty or unset value disables power
-classification and wake commands.
+classification and wake commands. Both `sony-control input` and the daemon
+reject a target matching the configured standby source.
 
 `POLL_INTERVAL` is the delay in seconds between WiiM polls. `REQUEST_TIMEOUT`
 is the per-request timeout in seconds. `SONY_READY_TIMEOUT` is the maximum

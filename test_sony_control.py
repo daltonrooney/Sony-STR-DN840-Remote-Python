@@ -94,17 +94,60 @@ class PowerStateTest(unittest.TestCase):
 
         self.assertEqual(receiver.select_input_when_awake("SA-CD/CD"), 0)
 
-    def test_owned_wake_sends_one_toggle_and_waits_until_source_changes(self):
+    def test_wake_times_out_after_one_toggle_while_source_stays_standby(self):
         receiver = sony_control.Receiver("receiver", standby_source="BD")
         receiver.sent = []
         receiver.send_ircc = receiver.sent.append
-        sources = iter(["BD", "SA-CD/CD"])
-        receiver.source = lambda: next(sources)
+        receiver.source = mock.Mock(return_value="BD")
 
-        with mock.patch.object(sony_control.time, "sleep"):
-            receiver.wake_from_standby(wait=2)
+        with (
+            mock.patch.object(sony_control.time, "sleep"),
+            mock.patch.object(
+                sony_control.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 1.0]
+            ),
+            self.assertRaisesRegex(sony_control.SonyError, "did not become ready"),
+        ):
+            receiver.wake_from_standby(wait=1.0)
 
         self.assertEqual(receiver.sent, [sony_control.POWER_TOGGLE])
+        self.assertEqual(receiver.source.call_count, 2)
+
+    def test_wake_times_out_after_one_toggle_while_state_stays_unknown(self):
+        receiver = sony_control.Receiver("receiver", standby_source="BD")
+        receiver.sent = []
+        receiver.send_ircc = receiver.sent.append
+        receiver.source = mock.Mock(side_effect=sony_control.SonyError("down"))
+
+        with (
+            mock.patch.object(sony_control.time, "sleep"),
+            mock.patch.object(
+                sony_control.time, "monotonic", side_effect=[0.0, 0.0, 0.5, 1.0]
+            ),
+            self.assertRaisesRegex(sony_control.SonyError, "did not become ready"),
+        ):
+            receiver.wake_from_standby(wait=1.0)
+
+        self.assertEqual(receiver.sent, [sony_control.POWER_TOGGLE])
+        self.assertEqual(receiver.source.call_count, 2)
+
+    def test_wake_tolerates_transient_unknown_without_another_toggle(self):
+        receiver = sony_control.Receiver("receiver", standby_source="BD")
+        receiver.sent = []
+        receiver.send_ircc = receiver.sent.append
+        receiver.power_state = mock.Mock(
+            side_effect=[sony_control.PowerState.UNKNOWN, sony_control.PowerState.ON]
+        )
+
+        with (
+            mock.patch.object(sony_control.time, "sleep"),
+            mock.patch.object(
+                sony_control.time, "monotonic", side_effect=[0.0, 0.0, 0.5]
+            ),
+        ):
+            receiver.wake_from_standby(wait=1.0)
+
+        self.assertEqual(receiver.sent, [sony_control.POWER_TOGGLE])
+        self.assertEqual(receiver.power_state.call_count, 2)
 
 
 class CommandLineTest(unittest.TestCase):
@@ -171,8 +214,40 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("power state is unknown", stderr)
 
+    def test_input_rejects_the_configured_standby_source(self):
+        receiver = sony_control.Receiver("receiver", standby_source="BD")
+        receiver.power_on = mock.Mock(side_effect=AssertionError("must not power on"))
+        receiver.send_ircc = mock.Mock(side_effect=AssertionError("must not send IRCC"))
+
+        code, stdout, stderr, _ = self.run_cli(
+            ["input", "bd"], receiver, standby_source="BD"
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("matches the standby source", stderr)
+        receiver.power_on.assert_not_called()
+        receiver.send_ircc.assert_not_called()
+
 
 class SelectInputTest(unittest.TestCase):
+    def test_rejects_standby_source_before_power_or_input_io(self):
+        for method_name in ("select_input", "select_input_when_awake"):
+            with self.subTest(method=method_name):
+                receiver = sony_control.Receiver("receiver", standby_source="BD")
+                receiver.power_on = mock.Mock()
+                receiver.source = mock.Mock()
+                receiver.send_ircc = mock.Mock()
+
+                with self.assertRaisesRegex(
+                    sony_control.SonyError, "matches the standby source"
+                ):
+                    getattr(receiver, method_name)("bd")
+
+                receiver.power_on.assert_not_called()
+                receiver.source.assert_not_called()
+                receiver.send_ircc.assert_not_called()
+
     def receiver_with_sources(self, sources):
         receiver = sony_control.Receiver("receiver")
         receiver.power_on = lambda: False

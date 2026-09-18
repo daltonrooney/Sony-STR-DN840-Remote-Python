@@ -276,11 +276,23 @@ class Receiver:
                 return
         raise SonyError("Receiver did not become ready after the power command")
 
+    def _validate_input_target(self, target: str) -> None:
+        if (
+            self.standby_source
+            and target.casefold() == self.standby_source.casefold()
+        ):
+            raise SonyError(
+                f"Input {target!r} matches the standby source; "
+                "disable or change SONY_STANDBY_SOURCE first"
+            )
+
     def select_input(self, target: str, max_steps: int = 20) -> int:
+        self._validate_input_target(target)
         self.power_on()
         return self.select_input_when_awake(target, max_steps)
 
     def select_input_when_awake(self, target: str, max_steps: int = 20) -> int:
+        self._validate_input_target(target)
         current = self.source()
         if current.casefold() == target.casefold():
             return 0
