@@ -1,4 +1,4 @@
-certifi==2019.3.9
+certifi==2026.10.19
 chardet==3.0.4
 idna==2.8
 paho-mqtt==1.4.0
